@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.1.1/css/bootstrap.min.css">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Web site created using create-react-app"
+    />
+    <title>BackboneJS and React/Redux Integration</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+
+    <script src="jquery.min.js" type="text/javascript"></script>
+    <script src="underscore.js" type="text/javascript"></script>
+    <script src="backbone.js"></script>
+    <script src="event_manager.js"></script>
+
+    <div class="container">
+      <h2>Backbone ToDos Manager</h2>
+      <hr />
+      <div class="page"></div>
+    </div>
+
+    <script type="text/template" id="todos-list-template">
+      <div>
+        <input type="text" class="input-large js-new-todo-task" style="margin-bottom: 0">
+        <a href="#" class="btn btn-primary js-add-new-todo">New</a>
+      </div>
+      <hr />
+      <table class="table striped">
+        <thead>
+          <tr>
+            <th>Task</th><th>Done</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% _.each(todos, function(todo) { %>
+            <tr>
+              <td><%= todo.get('task') %></td>
+              <td>
+                <% if (todo.get('done')) { %>
+                  <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-check-square-fill" fill="green" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm10.03 4.97a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                  </svg>
+                <% } else { %>
+                  <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-x-square-fill" fill="red" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm3.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646z"/>
+                  </svg>
+                <% } %>
+              </td>
+              <td><a class="btn js-mark-as-done" href="#" data-id="<%= todo.id %>" data-origin="backbone">Done with <%= todo.id %></a></td>
+              <td><a class="btn js-delete-todo" href="#" data-id="<%= todo.id %>" data-origin="backbone">Delete <%= todo.id %></a></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </script>
+
+    <script>
+
+      const Todos = Backbone.Collection.extend({
+        url: '/todos',
+        seq: 100,
+
+        genTaskId: function() {
+          let id;
+          const todos = this.models;
+          if (!todos.length) {
+            return this.seq++;
+          }
+          return Math.max(...todos.map(todo => todo.get('id'))) + 1;
+        },
+
+        fetch: function() {
+          var p = new jQuery.Deferred();
+          setTimeout(() => {
+            [
+              { id: this.genTaskId(), task: 'prepare a poc', done: false },
+              { id: this.genTaskId(), task: 'present the poc', done: false }
+            ].forEach((item) => {
+              this.add(item, {origin: 'backbone'});
+            })
+            p.resolve();
+          }, 1000);
+
+          return p.promise();
+        },
+
+        add: function(model, options) {
+          const rv = Backbone.Collection.prototype.add.call(this, model, options);
+          if (options.origin === 'backbone') {
+            window.applicationStore.dispatch({
+              type: 'ADD_TODO',
+              task: model.task,
+              id: model.id,
+              origin: 'backbone'
+            });
+          }
+          return rv;
+        },
+      });
+
+      const TodosListView = Backbone.View.extend({
+        el: '.page',
+
+        events: {
+          'click .js-add-new-todo': 'addNewToDo',
+          'click .js-delete-todo': 'deleteToDo',
+          'click .js-mark-as-done': 'markAsDone',
+        },
+
+        initialize: function() {
+          this.collection = new Todos();
+          this.collection.fetch()
+          .done(() => {
+            this.render();
+            this.afterRender();
+          });
+        },
+
+        addNewToDo: function() {
+          this.collection.add({
+            id: this.collection.genTaskId(),
+            task: this.$('.js-new-todo-task').val(),
+            done: false
+          }, {origin: 'backbone'});
+          this.render();
+        },
+
+        deleteToDo: function(e) {
+          const id = parseInt(e.target.dataset.id, 10);
+          const origin = e.target.dataset.origin;
+          const model = this.collection.find((model) => {
+            return model.get('id') === id; 
+          });
+          if (model) {
+            this.collection.remove(model);
+            if (origin === 'backbone') {
+              window.applicationStore.dispatch({
+                type: 'DELETE_TODO',
+                id,
+                origin: 'backbone'
+              });
+            }
+          }
+          this.render();
+        },
+
+        markAsDone: function(e) {
+          const id = parseInt(e.target.dataset.id, 10);
+          const origin = e.target.dataset.origin;
+
+          const model = this.collection.find((model) => {
+            return model.get('id') === id; 
+          });
+          if (model) {
+            model.set({done: true});
+            if (origin === 'backbone') {
+              window.applicationStore.dispatch({
+                type: 'MARK_AS_DONE',
+                id,
+                origin: 'backbone'
+              });
+            }
+            this.render();
+          }
+        },
+
+        render: function() {
+          var template = _.template($('#todos-list-template').html());
+          this.$el.html(template({todos: this.collection.models}));
+        },
+
+        afterRender: function() {
+          window.EventManager.addEventListener('redux:to:backbone', (action) => {
+
+            switch(action.type) {
+              case 'ADD_TODO':
+                this.collection.add({
+                  id: action.id,
+                  task: action.task,
+                  done: false
+                }, {origin: 'react'});
+                this.render();
+                break;
+              case 'DELETE_TODO':
+                this.deleteToDo({
+                  target: {
+                    dataset: {
+                      id: action.id,
+                      origin: 'react'
+                    }
+                  }
+                });
+                break;
+              case 'MARK_AS_DONE':
+                this.markAsDone({
+                  target: {
+                    dataset: {
+                      id: action.id,
+                      origin: 'react'
+                    }
+                  }
+                });
+                break;
+            }
+console.log('from observe', action);
+          });
+        }
+      });
+
+      var todosListView = new TodosListView();
+
+    </script>
+
+
+    <div id="root"></div>
+    <script src="/main.js"></script>
+  </body>
+</html>
